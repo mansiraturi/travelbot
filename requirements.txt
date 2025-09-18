@@ -1,0 +1,15 @@
+langgraph
+langchain
+langchain-openai
+streamlit
+requests
+python-dotenv
+typing-extensions
+
+# AI Providers (install as needed)
+langchain-openai  # For OpenAI GPT
+google-generativeai  # For Google Gemini
+
+# Optional: Install only what you plan to use
+# pip install langchain-openai  # If using OpenAI
+# pip install google-generativeai  # If using Gemini
