@@ -7,7 +7,8 @@ import sys
 sys.path.append(os.path.dirname(__file__))
 
 try:
-    from travel_assistant import RealAPITravelAssistant, detect_available_providers
+    from travel_assistant import EnhancedTravelAssistant
+    from travel_assistant import detect_available_providers
 except ImportError:
     st.error("❌ Cannot import from travel_assistant.py. Make sure 'travel_assistant.py' is in the same directory.")
     st.stop()
@@ -93,7 +94,7 @@ def initialize_atlas_ai(provider: str, api_key: str):
         return False
     
     try:
-        st.session_state.atlas_ai = RealAPITravelAssistant(provider, api_key)
+        st.session_state.atlas_ai = EnhancedTravelAssistant(provider, api_key)
         st.session_state.chat_state = None
         st.session_state.selected_provider = provider
         return True
@@ -470,10 +471,9 @@ I love adventure and cultural experiences!"
                 with status_placeholder:
                     st.info("🔄 Initializing real API calls...")
                 
-                st.session_state.chat_state = st.session_state.atlas_ai.chat(
-                    query, st.session_state.chat_state
-                )
-                
+                result = st.session_state.atlas_ai.chat_with_persistence(
+                    query, session_id="streamlit-session"
+                    )
                 # Clear status
                 status_placeholder.empty()
                 
