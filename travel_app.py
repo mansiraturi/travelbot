@@ -7,7 +7,7 @@ import sys
 sys.path.append(os.path.dirname(__file__))
 
 try:
-    from travel_assistant import EnhancedTravelAssistant
+    from travel_assistant import RealAPITravelAssistant
     from travel_assistant import detect_available_providers
 except ImportError:
     st.error("❌ Cannot import from travel_assistant.py. Make sure 'travel_assistant.py' is in the same directory.")
@@ -94,7 +94,7 @@ def initialize_atlas_ai(provider: str, api_key: str):
         return False
     
     try:
-        st.session_state.atlas_ai = EnhancedTravelAssistant(provider, api_key)
+        st.session_state.atlas_ai = RealAPITravelAssistant(provider, api_key)
         st.session_state.chat_state = None
         st.session_state.selected_provider = provider
         return True
