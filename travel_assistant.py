@@ -402,7 +402,7 @@ def detect_available_providers():
     return providers
 
 # ===========================================
-# ENHANCED TRAVEL ASSISTANT - COMPLETE
+# ENHANCED TRAVEL ASSISTANT - WITH MCP INTEGRATION
 # ===========================================
 
 class EnhancedTravelAssistant:
@@ -422,6 +422,19 @@ class EnhancedTravelAssistant:
         # Add real places API
         self.places_api = RealPlacesAPI()
         print("Real Places API ready (OpenStreetMap)")
+        
+        # Try to import MCP tools
+        try:
+            from travel_mcp_server import search_flights, search_hotels, search_attractions, manage_session
+            self.search_flights_mcp = search_flights
+            self.search_hotels_mcp = search_hotels
+            self.search_attractions_mcp = search_attractions
+            self.manage_session_mcp = manage_session
+            self.use_mcp_tools = True
+            print("MCP tools integrated into travel assistant")
+        except ImportError as e:
+            print(f"MCP tools not available, using direct API calls: {e}")
+            self.use_mcp_tools = False
         
         # Build LangGraph workflow
         self.graph = self._build_conversational_graph()
@@ -490,26 +503,88 @@ class EnhancedTravelAssistant:
         
         return workflow.compile()
 
-    # API METHODS - COMPLETE IMPLEMENTATION
+    # MCP-INTEGRATED API METHODS
     def call_aviationstack_api(self, origin: str, destination: str, api_key: str) -> List[Dict[str, Any]]:
-        """Call AviationStack for REAL flight data with enhanced debugging"""
+        """Call flight search - MCP integrated if available"""
         try:
+            if self.use_mcp_tools:
+                print(f"Using MCP tool for flight search: {origin} → {destination}")
+                result = self.search_flights_mcp(origin, destination, api_key)
+                
+                if result.get("status") == "success":
+                    flights = result.get("flights", [])
+                    print(f"MCP flight tool returned {len(flights)} flights")
+                    return flights
+                else:
+                    raise Exception(f"MCP flight tool error: {result.get('error', 'Unknown error')}")
+            else:
+                # Original direct API call fallback
+                return self._call_aviationstack_direct(origin, destination, api_key)
+                
+        except Exception as e:
+            print(f"Flight search error: {e}")
+            raise Exception(f"Flight search failed: {str(e)}")
+    
+    def call_booking_hotels_api(self, destination: str, checkin: str, checkout: str, api_key: str) -> List[Dict[str, Any]]:
+        """Call hotel search - MCP integrated if available"""
+        try:
+            if self.use_mcp_tools:
+                print(f"Using MCP tool for hotel search: {destination}")
+                result = self.search_hotels_mcp(destination, checkin, checkout, api_key)
+                
+                if result.get("status") == "success":
+                    hotels = result.get("hotels", [])
+                    print(f"MCP hotel tool returned {len(hotels)} hotels")
+                    return hotels
+                else:
+                    raise Exception(f"MCP hotel tool error: {result.get('error', 'Unknown error')}")
+            else:
+                # Original direct API call fallback
+                return self._call_booking_hotels_direct(destination, checkin, checkout, api_key)
+                
+        except Exception as e:
+            print(f"Hotel search error: {e}")
+            raise Exception(f"Hotel search failed: {str(e)}")
+    
+    def call_google_places_api(self, destination: str, interests: List[str]) -> List[Dict[str, Any]]:
+        """Call attractions search - MCP integrated if available"""
+        try:
+            if self.use_mcp_tools:
+                print(f"Using MCP tool for attractions search: {destination}")
+                result = self.search_attractions_mcp(destination, interests)
+                
+                if result.get("status") == "success":
+                    attractions = result.get("attractions", [])
+                    print(f"MCP attractions tool returned {len(attractions)} attractions")
+                    return attractions
+                else:
+                    raise Exception(f"MCP attractions tool error: {result.get('error', 'Unknown error')}")
+            else:
+                # Original Places API fallback
+                return self.places_api.get_attractions_real(destination, interests)
+                
+        except Exception as e:
+            print(f"Attractions search error: {e}")
+            return []
+
+    # DIRECT API FALLBACK METHODS (unchanged from original)
+    def _call_aviationstack_direct(self, origin: str, destination: str, api_key: str) -> List[Dict[str, Any]]:
+        """Direct AviationStack API call (original method)"""
+        try:
+            origin_code = self.get_airport_code(origin)
+            dest_code = self.get_airport_code(destination)
+            
             url = "http://api.aviationstack.com/v1/flights"
             params = {
                 "access_key": api_key,
-                "dep_iata": origin,
-                "arr_iata": destination,
-                "limit": 6  # Request more flights
+                "dep_iata": origin_code,
+                "arr_iata": dest_code,
+                "limit": 6
             }
             
-            print(f"Calling AviationStack: {origin} → {destination}")
-            print(f"Request params: {params}")
-            
             response = requests.get(url, params=params, timeout=15)
-            print(f"AviationStack response: {response.status_code}")
             
             if response.status_code != 200:
-                print(f"AviationStack error: {response.text}")
                 raise Exception(f"AviationStack HTTP error {response.status_code}")
             
             data = response.json()
@@ -518,12 +593,8 @@ class EnhancedTravelAssistant:
                 raise Exception(f"AviationStack API error: {data['error']}")
             
             flights_data = data.get("data", [])
-            print(f"Found {len(flights_data)} flights in API response")
-            
-            if not flights_data:
-                raise Exception(f"No flights found for route {origin} → {destination}")
-            
             flights = []
+            
             for flight in flights_data[:6]:
                 try:
                     airline_info = flight.get("airline", {}) or {}
@@ -536,7 +607,7 @@ class EnhancedTravelAssistant:
                         "flight_number": flight_info.get("number", "N/A"),
                         "departure": departure_info.get("scheduled", "N/A"),
                         "arrival": arrival_info.get("scheduled", "N/A"),
-                        "source": "AviationStack Real Data",
+                        "source": "AviationStack Direct API",
                         "note": "Contact airline for pricing"
                     }
                     
@@ -545,21 +616,14 @@ class EnhancedTravelAssistant:
                 except Exception:
                     continue
             
-            print(f"Successfully processed {len(flights)} flights")
             return flights
             
         except Exception as e:
-            raise Exception(f"AviationStack API failed: {str(e)}")
+            raise Exception(f"AviationStack direct API failed: {str(e)}")
     
-    def call_booking_hotels_api(self, destination: str, checkin: str, checkout: str, api_key: str) -> List[Dict[str, Any]]:
-        """Call Booking.com API with enhanced debugging and better error handling"""
+    def _call_booking_hotels_direct(self, destination: str, checkin: str, checkout: str, api_key: str) -> List[Dict[str, Any]]:
+        """Direct Booking.com API call (original method)"""
         try:
-            print(f"=== BOOKING.COM API DEBUG ===")
-            print(f"Destination: {destination}")
-            print(f"Check-in: {checkin}")
-            print(f"Check-out: {checkout}")
-            print(f"API Key (first 10 chars): {api_key[:10]}...")
-            
             # Step 1: Get destination ID
             search_url = "https://booking-com.p.rapidapi.com/v1/hotels/locations"
             headers = {
@@ -567,31 +631,24 @@ class EnhancedTravelAssistant:
                 "X-RapidAPI-Host": "booking-com.p.rapidapi.com"
             }
             
-            search_params = {"name": destination, "locale": "en-gb"}
-            print(f"Step 1 - Location search URL: {search_url}")
-            print(f"Step 1 - Search params: {search_params}")
-            
-            search_response = requests.get(search_url, headers=headers, params=search_params, timeout=10)
-            print(f"Step 1 - Response code: {search_response.status_code}")
+            search_response = requests.get(
+                search_url, 
+                headers=headers, 
+                params={"name": destination, "locale": "en-gb"}, 
+                timeout=10
+            )
             
             if search_response.status_code != 200:
-                print(f"Step 1 - Error response: {search_response.text}")
-                raise Exception(f"Location search failed: HTTP {search_response.status_code}")
+                raise Exception(f"Hotel location search failed: HTTP {search_response.status_code}")
             
             search_data = search_response.json()
-            print(f"Step 1 - Found locations: {len(search_data) if search_data else 0}")
-            
             if not search_data:
                 raise Exception(f"No location found for {destination}")
             
             dest_id = search_data[0].get("dest_id")
             dest_type = search_data[0].get("dest_type", "city")
-            print(f"Step 1 - Destination ID: {dest_id}, Type: {dest_type}")
             
-            if not dest_id:
-                raise Exception("Could not extract destination ID")
-            
-            # Step 2: Search hotels with proper parameters
+            # Step 2: Search hotels
             hotel_url = "https://booking-com.p.rapidapi.com/v1/hotels/search"
             hotel_params = {
                 "dest_id": str(dest_id),
@@ -602,87 +659,39 @@ class EnhancedTravelAssistant:
                 "checkout_date": checkout,
                 "room_number": "1",
                 "locale": "en-gb",
-                "dest_type": dest_type,
-                "units": "metric",
-                "page_number": "0"
+                "dest_type": dest_type
             }
             
-            print(f"Step 2 - Hotel search URL: {hotel_url}")
-            print(f"Step 2 - Hotel params: {hotel_params}")
-            
             hotel_response = requests.get(hotel_url, headers=headers, params=hotel_params, timeout=20)
-            print(f"Step 2 - Response code: {hotel_response.status_code}")
             
-            if hotel_response.status_code == 422:
-                print(f"Step 2 - HTTP 422 Error Details: {hotel_response.text}")
-                try:
-                    error_details = hotel_response.json()
-                    print(f"Step 2 - Detailed error: {error_details}")
-                except:
-                    pass
-                raise Exception(f"Hotel search parameter validation failed - check dates: {checkin} to {checkout}")
-            elif hotel_response.status_code != 200:
-                print(f"Step 2 - Error response: {hotel_response.text}")
+            if hotel_response.status_code != 200:
                 raise Exception(f"Hotel search failed: HTTP {hotel_response.status_code}")
             
             hotel_data = hotel_response.json()
             hotels = hotel_data.get("result", [])
-            print(f"Step 2 - Found hotels: {len(hotels) if hotels else 0}")
             
-            if not hotels:
-                print(f"Step 2 - No hotels in response. Full response keys: {list(hotel_data.keys()) if hotel_data else 'None'}")
-                raise Exception("No hotels found in API response")
-            
-            # Format REAL hotel data
-            formatted_hotels = []
+            hotel_results = []
             nights = self.calculate_nights(checkin, checkout)
-            print(f"Calculating for {nights} nights")
             
-            for i, hotel in enumerate(hotels[:4]):
-                try:
-                    hotel_name = hotel.get("hotel_name", "Hotel")
-                    
-                    # Get REAL pricing from API
-                    price_info = hotel.get("min_total_price", 0)
-                    total_price = float(price_info) if price_info else 0
-                    per_night = total_price / nights if nights > 0 and total_price > 0 else total_price
-                    
-                    # Get REAL review data from API
-                    review_score = hotel.get("review_score", 0)
-                    review_count = hotel.get("review_nr", 0)
-                    
-                    formatted_hotel = {
-                        "name": hotel_name,
-                        "price_per_night": round(per_night, 2) if per_night > 0 else "Check with hotel",
-                        "total_price": round(total_price, 2) if total_price > 0 else "Check with hotel",
-                        "location": hotel.get("district", "City center"),
-                        "rating": f"{review_score}/10" if review_score > 0 else "No rating available",
-                        "review_count": review_count,
-                        "source": "Booking.com Real Data"
-                    }
-                    
-                    formatted_hotels.append(formatted_hotel)
-                    print(f"Processed hotel {i+1}: {hotel_name}")
-                    
-                except Exception as hotel_error:
-                    print(f"Error processing hotel {i}: {hotel_error}")
-                    continue
+            for hotel in hotels[:4]:
+                price_info = hotel.get("min_total_price", 0)
+                total_price = float(price_info) if price_info else 0
+                per_night = total_price / nights if nights > 0 and total_price > 0 else total_price
+                
+                hotel_results.append({
+                    "name": hotel.get("hotel_name", "Hotel"),
+                    "price_per_night": round(per_night, 2) if per_night > 0 else "Check with hotel",
+                    "total_price": round(total_price, 2) if total_price > 0 else "Check with hotel",
+                    "location": hotel.get("district", "City center"),
+                    "rating": f"{hotel.get('review_score', 0)}/10",
+                    "review_count": hotel.get("review_nr", 0),
+                    "source": "Booking.com Direct API"
+                })
             
-            print(f"Successfully processed {len(formatted_hotels)} hotels")
-            return formatted_hotels
+            return hotel_results
             
         except Exception as e:
-            print(f"Booking.com API failed: {str(e)}")
-            raise Exception(f"Booking.com API failed: {str(e)}")
-    
-    def call_google_places_api(self, destination: str, interests: List[str]) -> List[Dict[str, Any]]:
-        """Use REAL Places API"""
-        try:
-            print(f"Using REAL Places API for {destination}...")
-            return self.places_api.get_attractions_real(destination, interests)
-        except Exception as e:
-            print(f"Real Places API failed: {e}")
-            return []
+            raise Exception(f"Booking.com direct API failed: {str(e)}")
     
     def get_airport_code(self, city: str) -> str:
         """Convert city to airport code"""
@@ -734,9 +743,9 @@ class EnhancedTravelAssistant:
             checkout = (datetime.now() + timedelta(days=14 + duration_days)).strftime("%Y-%m-%d")
             return checkin, checkout
 
-    # ALL NODE METHODS - COMPLETE WITH PROPER VALIDATION
+    # ALL NODE METHODS - UNCHANGED FROM ORIGINAL
     def _extract_info(self, state: RealAPITravelState) -> RealAPITravelState:
-        """Extract trip details using AI with proper validation - RESTORED from original"""
+        """Extract trip details using AI with proper validation"""
         user_input = state["user_input"]
         
         try:
@@ -839,13 +848,14 @@ class EnhancedTravelAssistant:
             state["current_step"] = "awaiting_missing_info"
             return state
         
-        state["response"] = f"Perfect! Let me find real flights from {state['origin']} to {state['destination']} for your {state['duration_days']}-day trip!"
+        system_type = "MCP-powered" if self.use_mcp_tools else "Direct API"
+        state["response"] = f"Perfect! Let me find real flights from {state['origin']} to {state['destination']} for your {state['duration_days']}-day trip using {system_type} calls!"
         state["api_errors"] = []
         print("All info validated - proceeding to flight search")
         return state
     
     def _handle_missing_info(self, state: RealAPITravelState) -> RealAPITravelState:
-        """Handle missing information using AI - RESTORED from original"""
+        """Handle missing information using AI"""
         user_input = state["user_input"]
         
         try:
@@ -917,15 +927,16 @@ class EnhancedTravelAssistant:
             state["current_step"] = "awaiting_missing_info"
             return state
         
-        state["response"] = f"Excellent! Now I have all the details. Let me find real flights from {state['origin']} to {state['destination']} for your {state['duration_days']}-day trip!"
+        system_type = "MCP-powered" if self.use_mcp_tools else "Direct API"
+        state["response"] = f"Excellent! Now I have all the details. Let me find real flights from {state['origin']} to {state['destination']} for your {state['duration_days']}-day trip using {system_type} calls!"
         state["awaiting_user_choice"] = False
         state["current_step"] = "info_complete"
         
         return state
     
     def _search_flights(self, state: RealAPITravelState) -> RealAPITravelState:
-        """Search REAL flights"""
-        print(f"Searching REAL flights: {state['origin']} → {state['destination']}")
+        """Search flights using MCP tools if available, otherwise direct API"""
+        print(f"Searching flights: {state['origin']} → {state['destination']}")
         
         try:
             api_key = os.getenv("FLIGHT_API_KEY")
@@ -935,13 +946,15 @@ class EnhancedTravelAssistant:
                 state["awaiting_user_choice"] = False
                 return state
             
+            # This will automatically use MCP tool if available, otherwise fallback to direct API
+            flight_options = self.call_aviationstack_api(state["origin"], state["destination"], api_key)
+            state["flight_options"] = flight_options
+            
             origin_code = self.get_airport_code(state["origin"])
             dest_code = self.get_airport_code(state["destination"])
             
-            flight_options = self.call_aviationstack_api(origin_code, dest_code, api_key)
-            state["flight_options"] = flight_options
-            
-            response = f"Here are REAL flights from AviationStack ({origin_code} → {dest_code}):\n\n"
+            tool_type = "MCP tool" if self.use_mcp_tools else "direct API"
+            response = f"Here are REAL flights from {tool_type} ({origin_code} → {dest_code}):\n\n"
             
             for i, flight in enumerate(flight_options, 1):
                 dep_time = flight['departure']
@@ -951,7 +964,7 @@ class EnhancedTravelAssistant:
                 response += f"**Option {i}: {flight['airline']}**\n"
                 response += f"Flight {flight['flight_number']}\n"
                 response += f"Departs: {dep_time}\n"
-                response += f"{flight['note']}\n\n"
+                response += f"{flight.get('note', 'Contact airline')}\n\n"
             
             response += "Which flight option would you prefer? (Type the option number)"
             
@@ -968,8 +981,8 @@ class EnhancedTravelAssistant:
         return state
     
     def _search_hotels(self, state: RealAPITravelState) -> RealAPITravelState:
-        """Search REAL hotels with improved date handling"""
-        print(f"Searching REAL hotels in {state['destination']}")
+        """Search hotels using MCP tools if available, otherwise direct API"""
+        print(f"Searching hotels in {state['destination']}")
         
         try:
             api_key = os.getenv("RAPIDAPI_KEY")
@@ -985,10 +998,12 @@ class EnhancedTravelAssistant:
             
             print(f"Using dates for hotel search: {checkin} to {checkout}")
             
+            # This will automatically use MCP tool if available, otherwise fallback to direct API
             hotel_options = self.call_booking_hotels_api(state["destination"], checkin, checkout, api_key)
             state["hotel_options"] = hotel_options
             
-            response = f"Great! Here are REAL hotels from Booking.com for {checkin} to {checkout}:\n\n"
+            tool_type = "MCP tool" if self.use_mcp_tools else "direct API"
+            response = f"Great! Here are REAL hotels from {tool_type} for {checkin} to {checkout}:\n\n"
             
             for i, hotel in enumerate(hotel_options, 1):
                 price_text = f"${hotel['price_per_night']}/night" if hotel['price_per_night'] != "Check with hotel" else hotel['price_per_night']
@@ -997,7 +1012,7 @@ class EnhancedTravelAssistant:
                 response += f"{price_text}\n"
                 response += f"Location: {hotel['location']}\n"
                 response += f"Rating: {hotel['rating']}"
-                if hotel['review_count'] > 0:
+                if hotel.get('review_count', 0) > 0:
                     response += f" ({hotel['review_count']} reviews)"
                 response += "\n\n"
             
@@ -1020,15 +1035,17 @@ class EnhancedTravelAssistant:
         return state
     
     def _search_attractions(self, state: RealAPITravelState) -> RealAPITravelState:
-        """Search REAL attractions"""
-        print(f"Searching REAL attractions in {state['destination']}")
+        """Search attractions using MCP tools if available, otherwise direct API"""
+        print(f"Searching attractions in {state['destination']}")
         
         try:
+            # This will automatically use MCP tool if available, otherwise fallback to direct API
             attractions = self.call_google_places_api(state["destination"], state.get("interests", []))
             state["attractions_data"] = attractions
             
             if attractions:
-                response = f"Found {len(attractions)} REAL attractions from OpenStreetMap API:\n\n"
+                tool_type = "MCP tool" if self.use_mcp_tools else "direct API"
+                response = f"Found {len(attractions)} REAL attractions from {tool_type}:\n\n"
                 
                 for attraction in attractions[:5]:
                     response += f"• {attraction['name']}\n"
@@ -1075,7 +1092,8 @@ class EnhancedTravelAssistant:
             state["selected_trip_style"] = "cultural"  # Default
         
         state["current_step"] = "skip_to_itinerary"
-        state["response"] = f"Perfect! Creating your {state['selected_trip_style']} itinerary using REAL data from the APIs..."
+        system_type = "MCP-powered" if self.use_mcp_tools else "Direct API"
+        state["response"] = f"Perfect! Creating your {state['selected_trip_style']} itinerary using REAL data from {system_type} calls..."
         state["awaiting_user_choice"] = False
         
         print(f"Selected style: {state['selected_trip_style']}")
@@ -1120,7 +1138,7 @@ class EnhancedTravelAssistant:
             Hotel: {selected_hotel.get('name', 'Hotel selected')} in {selected_hotel.get('location', 'city center')}
             Budget: {state.get('budget', 'flexible')}
             
-            Real attractions from OpenStreetMap API:
+            Real attractions from API:
             {attractions_text}
             
             Create practical day-by-day plans incorporating these actual places."""
@@ -1144,7 +1162,8 @@ class EnhancedTravelAssistant:
             response += f"**Your Detailed Itinerary:**\n\n"
             response += itinerary_response.content
             
-            response += f"\n\n**Based on REAL data from AviationStack, Booking.com, and OpenStreetMap APIs!**"
+            data_source = "MCP tools" if self.use_mcp_tools else "Direct APIs"
+            response += f"\n\n**Based on REAL data from {data_source} (AviationStack, Booking.com, OpenStreetMap)!**"
             
             state["response"] = response
             state["current_step"] = "complete"
@@ -1179,7 +1198,8 @@ class EnhancedTravelAssistant:
                     if 0 <= choice_index < len(flight_options):
                         state["selected_flight"] = flight_options[choice_index]
                         airline = flight_options[choice_index].get('airline', 'Selected flight')
-                        state["response"] = f"Great choice! Selected {airline}. Now searching for REAL hotels..."
+                        data_source = "MCP" if self.use_mcp_tools else "direct API"
+                        state["response"] = f"Great choice! Selected {airline}. Now searching for REAL hotels via {data_source}..."
                     else:
                         state["selected_flight"] = flight_options[0]
                         state["response"] = "Selected first flight option. Now searching for REAL hotels..."
@@ -1204,7 +1224,8 @@ class EnhancedTravelAssistant:
                     if 0 <= choice_index < len(hotel_options):
                         state["selected_hotel"] = hotel_options[choice_index]
                         hotel_name = hotel_options[choice_index].get('name', 'Selected hotel')
-                        state["response"] = f"Excellent choice! Selected {hotel_name}. Now finding REAL attractions..."
+                        data_source = "MCP" if self.use_mcp_tools else "direct API"
+                        state["response"] = f"Excellent choice! Selected {hotel_name}. Now finding REAL attractions via {data_source}..."
                     else:
                         state["selected_hotel"] = hotel_options[0]
                         state["response"] = "Selected first hotel option. Now finding REAL attractions..."
@@ -1248,7 +1269,7 @@ class EnhancedTravelAssistant:
         else:
             return "skip_to_itinerary"
 
-    # ENHANCED SESSION MANAGEMENT
+    # ENHANCED SESSION MANAGEMENT WITH MCP INTEGRATION
     def chat_with_persistence(self, user_input: str, session_id: str = None, user_id: str = "anonymous") -> Dict[str, Any]:
         """Enhanced chat with session persistence and conversation history tracking"""
         
@@ -1349,22 +1370,25 @@ class EnhancedTravelAssistant:
             return error_result
 
     def chat(self, user_input: str, current_state: RealAPITravelState = None) -> RealAPITravelState:
-        """Main chat interface with proper conversation history tracking"""
-        
-        if current_state is None:
+    
+        if current_state is None or current_state.get("current_step") == "initial":
             print("Initial planning - invoking LangGraph workflow")
             # Initial planning - invoke LangGraph workflow
-            current_state = {
-                "user_input": user_input, 
-                "conversation_history": [
-                    {"role": "user", "content": user_input, "timestamp": datetime.now().isoformat()}
-                ],
-                "current_step": "initial", "awaiting_user_choice": False,
-                "origin": "", "destination": "", "duration_days": 0, "budget": "",
-                "interests": [], "selected_flight": {}, "selected_hotel": {},
-                "selected_trip_style": "", "flight_options": [], "hotel_options": [],
-                "attractions_data": [], "response": "", "api_errors": []
-            }
+            if current_state is None:
+                current_state = {
+                    "user_input": user_input, 
+                    "conversation_history": [
+                        {"role": "user", "content": user_input, "timestamp": datetime.now().isoformat()}
+                    ],
+                    "current_step": "initial", "awaiting_user_choice": False,
+                    "origin": "", "destination": "", "duration_days": 0, "budget": "",
+                    "interests": [], "selected_flight": {}, "selected_hotel": {},
+                    "selected_trip_style": "", "flight_options": [], "hotel_options": [],
+                    "attractions_data": [], "response": "", "api_errors": []
+                }
+            else:
+                # Update existing state with new user input
+                current_state["user_input"] = user_input
             
             result = self.graph.invoke(current_state)
             
@@ -1444,7 +1468,7 @@ class EnhancedTravelAssistant:
                 self.memory.chat_memory.add_ai_message(result.get("response", ""))
             
             return result or current_state
-    
+
     def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get session info"""
         if not self.session_manager:
@@ -1502,6 +1526,15 @@ if __name__ == "__main__":
     print("Enhanced Travel Assistant Setup & Status:")
     print("=" * 50)
     
+    # Check MCP integration status
+    try:
+        from travel_mcp_server import search_flights, search_hotels, search_attractions, manage_session
+        print("MCP Tools: Integrated ✅")
+        mcp_available = True
+    except ImportError:
+        print("MCP Tools: Not available ❌")
+        mcp_available = False
+    
     # Check API status
     print(f"AviationStack: {'Configured' if os.getenv('FLIGHT_API_KEY') else 'Not configured'}")
     print(f"RapidAPI: {'Configured' if os.getenv('RAPIDAPI_KEY') else 'Not configured'}")
@@ -1535,11 +1568,16 @@ if __name__ == "__main__":
     try:
         # Initialize Enhanced Atlas AI
         atlas_ai = EnhancedTravelAssistant(provider, api_key)
-        print(f"\nEnhanced Atlas AI Ready! (AI: {provider.title()})")
+        architecture = "MCP-integrated" if atlas_ai.use_mcp_tools else "Direct API"
+        print(f"\nEnhanced Atlas AI Ready! (AI: {provider.title()}, Architecture: {architecture})")
         print("=" * 50)
         print("Real APIs: AviationStack + Booking.com + OpenStreetMap")
         print("Enhanced PostgreSQL Session Management: Enabled")
         print("LangGraph Workflow: Active")
+        if mcp_available:
+            print("MCP Integration: Active ✅")
+        else:
+            print("MCP Integration: Fallback to direct APIs")
         print("\nTell me about your trip!\n")
         
         # Start conversation

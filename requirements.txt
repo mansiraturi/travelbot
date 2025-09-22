@@ -10,6 +10,8 @@ typing-extensions
 langchain-openai  # For OpenAI GPT
 google-generativeai  # For Google Gemini
 
+model-context-protocol==0.1.0
+
 # Optional: Install only what you plan to use
 # pip install langchain-openai  # If using OpenAI
 # pip install google-generativeai  # If using Gemini
